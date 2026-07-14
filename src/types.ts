@@ -30,3 +30,24 @@ export const STATUS_ORDER: ExperimentStatus[] = [
   'done',
   'blocked',
 ]
+
+// A tray (vertical card) inside an experiment. `position` orders them (0 = top).
+export interface Tray {
+  id: string
+  experiment_id: string
+  name: string
+  position: number
+  created_at: string
+}
+
+export type TrayDraft = Pick<Tray, 'experiment_id' | 'name' | 'position'>
+
+// Day-wise "images of that day" link (one row per calendar day).
+export interface DayLink {
+  day: string // 'YYYY-MM-DD'
+  images_url: string
+  updated_at: string
+}
+
+// Universal links stored as key/value in app_settings.
+export type SettingKey = 'publishing_url' | 'tray_qc_url'

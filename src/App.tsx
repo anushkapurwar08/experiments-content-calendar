@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Calendar from './Calendar'
 import ExperimentModal from './ExperimentModal'
+import LinksBar from './LinksBar'
+import Timeline from './Timeline'
 import {
   createExperiment,
   deleteExperiment,
@@ -8,9 +10,31 @@ import {
   subscribeToExperiments,
   updateExperiment,
 } from './experiments'
+import {
+  createTray,
+  deleteTray,
+  fetchTrays,
+  reorderTrays,
+  subscribeToTrays,
+} from './trays'
+import {
+  fetchDayLinks,
+  fetchSettings,
+  subscribeToLinks,
+  upsertDayLink,
+  upsertSetting,
+} from './links'
 import { isConfigured } from './supabase'
 import { monthLabel } from './dates'
-import { STATUS_META, STATUS_ORDER, type Experiment, type ExperimentDraft } from './types'
+import {
+  STATUS_META,
+  STATUS_ORDER,
+  type DayLink,
+  type Experiment,
+  type ExperimentDraft,
+  type SettingKey,
+  type Tray,
+} from './types'
 import './App.css'
 
 // The calendar opens here per the brief: experiments start 9 July 2026.
@@ -26,6 +50,9 @@ export default function App() {
   const [year, setYear] = useState(INITIAL_YEAR)
   const [month, setMonth] = useState(INITIAL_MONTH)
   const [experiments, setExperiments] = useState<Experiment[]>([])
+  const [trays, setTrays] = useState<Tray[]>([])
+  const [dayLinks, setDayLinks] = useState<DayLink[]>([])
+  const [settings, setSettings] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(isConfigured)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState | null>(null)
@@ -33,9 +60,20 @@ export default function App() {
   const reload = useCallback(async () => {
     if (!isConfigured) return
     try {
-      const data = await fetchExperiments()
-      setExperiments(data)
+      // Experiments are the critical fetch; the tray-planner tables degrade
+      // gracefully so the calendar still renders if they're not set up yet.
+      const exps = await fetchExperiments()
+      setExperiments(exps)
       setLoadError(null)
+
+      const [trs, links, sets] = await Promise.all([
+        fetchTrays().catch(() => [] as Tray[]),
+        fetchDayLinks().catch(() => [] as DayLink[]),
+        fetchSettings().catch(() => ({}) as Record<string, string>),
+      ])
+      setTrays(trs)
+      setDayLinks(links)
+      setSettings(sets)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load.')
     } finally {
@@ -45,8 +83,12 @@ export default function App() {
 
   useEffect(() => {
     reload()
-    const unsub = subscribeToExperiments(reload)
-    return unsub
+    const unsubs = [
+      subscribeToExperiments(reload),
+      subscribeToTrays(reload),
+      subscribeToLinks(reload),
+    ]
+    return () => unsubs.forEach((u) => u())
   }, [reload])
 
   const prevMonth = () => {
@@ -87,6 +129,61 @@ export default function App() {
     await reload()
   }
 
+  const handleUpdateDates = async (
+    id: string,
+    startISO: string,
+    endISO: string,
+  ) => {
+    // Optimistic: reflect the drag immediately, then persist.
+    setExperiments((prev) =>
+      prev.map((e) =>
+        e.id === id ? { ...e, start_date: startISO, end_date: endISO } : e,
+      ),
+    )
+    const exp = experiments.find((e) => e.id === id)
+    if (!exp) return
+    await updateExperiment(id, {
+      title: exp.title,
+      start_date: startISO,
+      end_date: endISO,
+      status: exp.status,
+      owner: exp.owner,
+      notes: exp.notes,
+    })
+    await reload()
+  }
+
+  const handleReorderTrays = async (orderedIds: string[]) => {
+    // Optimistic local reorder for snappy feel.
+    setTrays((prev) => {
+      const pos = new Map(orderedIds.map((id, i) => [id, i]))
+      return prev.map((t) => (pos.has(t.id) ? { ...t, position: pos.get(t.id)! } : t))
+    })
+    await reorderTrays(orderedIds)
+    await reload()
+  }
+
+  const handleAddTray = async (experimentId: string, name: string) => {
+    const existing = trays.filter((t) => t.experiment_id === experimentId)
+    await createTray({ experiment_id: experimentId, name, position: existing.length })
+    await reload()
+  }
+
+  const handleDeleteTray = async (id: string) => {
+    await deleteTray(id)
+    await reload()
+  }
+
+  const handleSaveDayLink = async (day: string, url: string) => {
+    await upsertDayLink(day, url)
+    await reload()
+  }
+
+  const handleSaveSetting = async (key: SettingKey, url: string) => {
+    await upsertSetting(key, url)
+    await reload()
+  }
+
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const s of STATUS_ORDER) counts[s] = 0
@@ -116,6 +213,12 @@ export default function App() {
           + New experiment
         </button>
       </header>
+
+      <LinksBar
+        publishingUrl={settings.publishing_url ?? ''}
+        trayQcUrl={settings.tray_qc_url ?? ''}
+        onSave={handleSaveSetting}
+      />
 
       <div className="toolbar">
         <div className="month-nav">
@@ -152,15 +255,35 @@ export default function App() {
       {loading ? (
         <div className="banner">Loading…</div>
       ) : (
-        <Calendar
-          year={year}
-          month={month}
-          experiments={experiments}
-          onAddOnDay={(iso) => setModal({ existing: null, defaultDate: iso })}
-          onOpenExperiment={(exp) =>
-            setModal({ existing: exp, defaultDate: exp.start_date })
-          }
-        />
+        <>
+          <Calendar
+            year={year}
+            month={month}
+            experiments={experiments}
+            onAddOnDay={(iso) => setModal({ existing: null, defaultDate: iso })}
+            onOpenExperiment={(exp) =>
+              setModal({ existing: exp, defaultDate: exp.start_date })
+            }
+          />
+          <Timeline
+            year={year}
+            month={month}
+            experiments={experiments}
+            trays={trays}
+            dayLinks={dayLinks}
+            onUpdateDates={handleUpdateDates}
+            onNewExperiment={() =>
+              setModal({ existing: null, defaultDate: `${year}-${String(month + 1).padStart(2, '0')}-01` })
+            }
+            onOpenExperiment={(exp) =>
+              setModal({ existing: exp, defaultDate: exp.start_date })
+            }
+            onReorderTrays={handleReorderTrays}
+            onAddTray={handleAddTray}
+            onDeleteTray={handleDeleteTray}
+            onSaveDayLink={handleSaveDayLink}
+          />
+        </>
       )}
 
       {modal && (

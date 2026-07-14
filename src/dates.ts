@@ -66,4 +66,42 @@ export function coversDay(
   return dayISO >= startISO && dayISO <= endISO
 }
 
+// Add (or subtract) whole days to an ISO date, returning a new ISO date.
+export function addDaysISO(iso: string, delta: number): string {
+  const d = parseISODate(iso)
+  return toISODate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + delta))
+}
+
+// Whole-day difference b - a (both ISO). Positive when b is later.
+export function daysBetween(aISO: string, bISO: string): number {
+  const a = parseISODate(aISO)
+  const b = parseISODate(bISO)
+  return Math.round((b.getTime() - a.getTime()) / 86400000)
+}
+
+export interface MonthDay {
+  iso: string
+  dayNum: number
+  isToday: boolean
+  weekday: string // 'Sun'..'Sat'
+}
+
+// The actual days in a month (no leading/trailing padding), for the timeline.
+export function buildMonthDays(year: number, month: number): MonthDay[] {
+  const count = new Date(year, month + 1, 0).getDate()
+  const today = todayISO()
+  const days: MonthDay[] = []
+  for (let d = 1; d <= count; d++) {
+    const date = new Date(year, month, d)
+    const iso = toISODate(date)
+    days.push({
+      iso,
+      dayNum: d,
+      isToday: iso === today,
+      weekday: WEEKDAY_LABELS[date.getDay()],
+    })
+  }
+  return days
+}
+
 export const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
