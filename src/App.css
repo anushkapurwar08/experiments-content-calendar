@@ -583,24 +583,36 @@ code {
 }
 
 /* ---------- Day lineup title ---------- */
+.day-title-wrap {
+  position: relative;
+}
 .day-title {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   text-align: left;
   width: 100%;
   border: none;
   background: transparent;
-  padding: 1px 2px;
+  padding: 2px 6px;
   margin: 2px 0;
   font-size: 12px;
   font-weight: 700;
   color: var(--text);
-  border-radius: 4px;
+  border-radius: 5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .day-title:hover {
+  filter: brightness(0.97);
   background: var(--surface-2);
+}
+.day-title-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
 .day-title--empty {
   font-weight: 600;
@@ -611,9 +623,64 @@ code {
 .day-cell:hover .day-title--empty {
   opacity: 1;
 }
-.day-title-input {
-  margin: 2px 0;
+
+/* Lineup editor popover (rename + color + delete) */
+.lineup-editor {
+  position: absolute;
+  top: 26px;
+  left: 0;
+  z-index: 40;
+  width: 216px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  padding: 12px;
+}
+.lineup-editor-title {
+  font-size: 11px;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.lineup-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+.lineup-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.lineup-swatch:hover {
+  transform: scale(1.1);
+}
+.lineup-swatch--on {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+.lineup-swatch-x {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.lineup-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.lineup-delete {
+  width: 100%;
+  margin-top: 4px;
 }
 
 /* ---------- Copy / Move drop chooser ---------- */

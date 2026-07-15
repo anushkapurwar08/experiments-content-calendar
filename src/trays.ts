@@ -88,7 +88,7 @@ export async function copyDayTrays(fromDay: string, toDay: string): Promise<void
   return copyDayLineup(fromDay, toDay)
 }
 
-// ---- Lineup titles -------------------------------------------------------
+// ---- Lineup title + color ------------------------------------------------
 
 export async function fetchDayLineups(): Promise<DayLineup[]> {
   if (!supabase) return []
@@ -97,47 +97,62 @@ export async function fetchDayLineups(): Promise<DayLineup[]> {
   return data as DayLineup[]
 }
 
-export async function upsertDayLineupTitle(
+// Set the title and/or color for a day's lineup. If both are empty the row is
+// removed so we don't accumulate blanks.
+export async function upsertDayLineup(
   day: string,
   title: string,
+  color: string,
 ): Promise<void> {
   if (!supabase) throw new Error('Supabase not configured')
   const client = supabase
   const trimmed = title.trim()
-  if (!trimmed) {
-    // Empty title clears the row so we don't accumulate blanks.
+  if (!trimmed && !color) {
     const { error } = await client.from(LINEUP_TABLE).delete().eq('day', day)
     if (error) throw error
     return
   }
-  const { error } = await client
-    .from(LINEUP_TABLE)
-    .upsert({ day, title: trimmed, updated_at: new Date().toISOString() })
+  const { error } = await client.from(LINEUP_TABLE).upsert({
+    day,
+    title: trimmed,
+    color,
+    updated_at: new Date().toISOString(),
+  })
   if (error) throw error
 }
 
-async function copyLineupTitle(fromDay: string, toDay: string): Promise<void> {
+// Remove a whole day's lineup: all its trays and its title/color row.
+export async function deleteDayLineup(day: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured')
   const client = supabase
-  if (!client) return
+  await client.from(TABLE).delete().eq('day', day)
+  await client.from(LINEUP_TABLE).delete().eq('day', day)
+}
+
+async function readLineup(
+  day: string,
+): Promise<{ title: string; color: string }> {
+  const client = supabase
+  if (!client) return { title: '', color: '' }
   const { data } = await client
     .from(LINEUP_TABLE)
-    .select('title')
-    .eq('day', fromDay)
+    .select('title, color')
+    .eq('day', day)
     .maybeSingle()
-  const title = (data as { title: string } | null)?.title ?? ''
-  await upsertDayLineupTitle(toDay, title)
+  const row = data as { title: string; color: string } | null
+  return { title: row?.title ?? '', color: row?.color ?? '' }
+}
+
+async function copyLineupTitle(fromDay: string, toDay: string): Promise<void> {
+  const { title, color } = await readLineup(fromDay)
+  await upsertDayLineup(toDay, title, color)
 }
 
 async function moveLineupTitle(fromDay: string, toDay: string): Promise<void> {
   const client = supabase
   if (!client) return
-  const { data } = await client
-    .from(LINEUP_TABLE)
-    .select('title')
-    .eq('day', fromDay)
-    .maybeSingle()
-  const title = (data as { title: string } | null)?.title ?? ''
-  await upsertDayLineupTitle(toDay, title)
+  const { title, color } = await readLineup(fromDay)
+  await upsertDayLineup(toDay, title, color)
   await client.from(LINEUP_TABLE).delete().eq('day', fromDay)
 }
 

@@ -13,13 +13,14 @@ import {
   copyDayLineup,
   copyDayTrays,
   createDayTray,
+  deleteDayLineup,
   deleteDayTray,
   fetchDayLineups,
   fetchDayTrays,
   moveDayLineup,
   reorderDayTrays,
   subscribeToDayTrays,
-  upsertDayLineupTitle,
+  upsertDayLineup,
 } from './trays'
 import {
   fetchDayLinks,
@@ -181,8 +182,16 @@ export default function App() {
     await reload()
   }
 
-  const handleSaveTitle = async (day: string, title: string) => {
-    await upsertDayLineupTitle(day, title)
+  const handleSaveLineup = async (day: string, title: string, color: string) => {
+    await upsertDayLineup(day, title, color)
+    await reload()
+  }
+
+  const handleDeleteLineup = async (day: string) => {
+    // Optimistic: drop this day's trays locally, then persist trays + title.
+    setDayTrays((prev) => prev.filter((t) => t.day !== day))
+    setDayLineups((prev) => prev.filter((l) => l.day !== day))
+    await deleteDayLineup(day)
     await reload()
   }
 
@@ -283,7 +292,8 @@ export default function App() {
           onCopyPrev={handleCopyPrev}
           onCopyDay={handleCopyDay}
           onMoveDay={handleMoveDay}
-          onSaveTitle={handleSaveTitle}
+          onSaveLineup={handleSaveLineup}
+          onDeleteLineup={handleDeleteLineup}
           onSaveDayLink={handleSaveDayLink}
         />
       )}

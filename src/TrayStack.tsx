@@ -21,6 +21,7 @@ import type { DayTray } from './types'
 interface Props {
   day: string
   trays: DayTray[] // already sorted by position, for this day
+  color: string // lineup color ('' = default)
   allTrayNames: string[] // autocomplete across all days
   canCopyPrev: boolean
   onReorder: (day: string, orderedIds: string[]) => void
@@ -32,6 +33,7 @@ interface Props {
 export default function TrayStack({
   day,
   trays,
+  color,
   allTrayNames,
   canCopyPrev,
   onReorder,
@@ -88,6 +90,7 @@ export default function TrayStack({
               key={tray.id}
               tray={tray}
               index={i}
+              color={color}
               onDelete={() => onDeleteTray(tray.id)}
             />
           ))}
@@ -141,10 +144,12 @@ export default function TrayStack({
 function TrayBlock({
   tray,
   index,
+  color,
   onDelete,
 }: {
   tray: DayTray
   index: number
+  color: string
   onDelete: () => void
 }) {
   const {
@@ -156,11 +161,12 @@ function TrayBlock({
     isDragging,
   } = useSortable({ id: tray.id })
 
-  const style = {
+  const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 3 : undefined,
     opacity: isDragging ? 0.9 : 1,
+    ...(color ? { borderColor: color, background: color + '0f' } : {}),
   }
 
   return (
@@ -171,7 +177,12 @@ function TrayBlock({
       {...attributes}
       {...listeners}
     >
-      <span className="daytray-pos">{index + 1}</span>
+      <span
+        className="daytray-pos"
+        style={color ? { background: color } : undefined}
+      >
+        {index + 1}
+      </span>
       <span className="daytray-name">{tray.name}</span>
       <button
         className="daytray-del"

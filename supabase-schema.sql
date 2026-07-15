@@ -61,8 +61,12 @@ create index if not exists day_trays_day_position_idx
 create table if not exists public.day_lineups (
   day         date primary key,
   title       text not null default '',
+  color       text not null default '',
   updated_at  timestamptz not null default now()
 );
+-- Additive: add color to an already-created table.
+alter table public.day_lineups
+  add column if not exists color text not null default '';
 
 -- Day-wise "images of that day" links (one row per calendar day).
 create table if not exists public.day_links (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -13,6 +13,7 @@ import {
 } from '@dnd-kit/core'
 import { buildMonthGrid, coversDay, WEEKDAY_LABELS } from './dates'
 import {
+  LINEUP_COLORS,
   STATUS_META,
   type DayLineup,
   type DayLink,
@@ -35,7 +36,8 @@ interface Props {
   onCopyPrev: (day: string) => void
   onCopyDay: (fromDay: string, toDay: string) => void
   onMoveDay: (fromDay: string, toDay: string) => void
-  onSaveTitle: (day: string, title: string) => void
+  onSaveLineup: (day: string, title: string, color: string) => void
+  onDeleteLineup: (day: string) => void
   onSaveDayLink: (day: string, url: string) => void
 }
 
@@ -64,7 +66,8 @@ export default function Calendar({
   onCopyPrev,
   onCopyDay,
   onMoveDay,
-  onSaveTitle,
+  onSaveLineup,
+  onDeleteLineup,
   onSaveDayLink,
 }: Props) {
   const cells = buildMonthGrid(year, month)
@@ -76,7 +79,7 @@ export default function Calendar({
 
   const allTrayNames = Array.from(new Set(dayTrays.map((t) => t.name))).sort()
   const linkMap = new Map(dayLinks.map((d) => [d.day, d.images_url]))
-  const titleMap = new Map(dayLineups.map((l) => [l.day, l.title]))
+  const lineupMap = new Map(dayLineups.map((l) => [l.day, l]))
   const traysByDay = new Map<string, DayTray[]>()
   for (const t of dayTrays) {
     const list = traysByDay.get(t.day) ?? []
@@ -133,7 +136,9 @@ export default function Calendar({
               .slice()
               .sort((a, b) => a.position - b.position)
             const imagesUrl = linkMap.get(cell.iso) ?? ''
-            const title = titleMap.get(cell.iso) ?? ''
+            const lineup = lineupMap.get(cell.iso)
+            const title = lineup?.title ?? ''
+            const color = lineup?.color ?? ''
             const prevIso = cell.date
               ? new Date(
                   cell.date.getFullYear(),
@@ -196,13 +201,16 @@ export default function Calendar({
 
                 <DayTitle
                   title={title}
+                  color={color}
                   hasTrays={trays.length > 0}
-                  onSave={(t) => onSaveTitle(cell.iso, t)}
+                  onSave={(t, c) => onSaveLineup(cell.iso, t, c)}
+                  onDelete={() => onDeleteLineup(cell.iso)}
                 />
 
                 <TrayStack
                   day={cell.iso}
                   trays={trays}
+                  color={color}
                   allTrayNames={allTrayNames}
                   canCopyPrev={prevHasTrays}
                   onReorder={onReorderTrays}
@@ -352,67 +360,134 @@ function DayDragGrip({ iso }: { iso: string }) {
 
 function DayTitle({
   title,
+  color,
   hasTrays,
   onSave,
+  onDelete,
 }: {
   title: string
+  color: string
   hasTrays: boolean
-  onSave: (title: string) => void
+  onSave: (title: string, color: string) => void
+  onDelete: () => void
 }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(title)
+  const [open, setOpen] = useState(false)
 
-  useEffect(() => setDraft(title), [title])
+  if (!title && !hasTrays) return null
 
-  const commit = () => {
-    setEditing(false)
-    if (draft.trim() !== title) onSave(draft.trim())
-  }
+  return (
+    <div className="day-title-wrap">
+      {title ? (
+        <button
+          className="day-title"
+          title="Edit this lineup"
+          style={color ? { color, background: color + '1a' } : undefined}
+          onClick={() => setOpen(true)}
+        >
+          {color && (
+            <span className="day-title-dot" style={{ background: color }} />
+          )}
+          {title}
+        </button>
+      ) : (
+        <button className="day-title day-title--empty" onClick={() => setOpen(true)}>
+          + name lineup
+        </button>
+      )}
 
-  if (editing) {
-    return (
+      {open && (
+        <LineupEditor
+          title={title}
+          color={color}
+          hasTrays={hasTrays}
+          onSave={(t, c) => {
+            onSave(t, c)
+            setOpen(false)
+          }}
+          onDelete={() => {
+            onDelete()
+            setOpen(false)
+          }}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function LineupEditor({
+  title,
+  color,
+  hasTrays,
+  onSave,
+  onDelete,
+  onClose,
+}: {
+  title: string
+  color: string
+  hasTrays: boolean
+  onSave: (title: string, color: string) => void
+  onDelete: () => void
+  onClose: () => void
+}) {
+  const [draftTitle, setDraftTitle] = useState(title)
+  const [draftColor, setDraftColor] = useState(color)
+
+  return (
+    <div className="lineup-editor" onClick={(e) => e.stopPropagation()}>
+      <div className="lineup-editor-title">Lineup</div>
       <input
-        className="input input--sm day-title-input"
+        className="input input--sm"
         autoFocus
-        value={draft}
+        value={draftTitle}
         placeholder="Name this lineup…"
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        onChange={(e) => setDraftTitle(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') commit()
-          if (e.key === 'Escape') {
-            setDraft(title)
-            setEditing(false)
-          }
+          if (e.key === 'Enter') onSave(draftTitle.trim(), draftColor)
+          if (e.key === 'Escape') onClose()
         }}
       />
-    )
-  }
-
-  if (title) {
-    return (
-      <button
-        className="day-title"
-        title="Rename this lineup"
-        onClick={() => setEditing(true)}
-      >
-        {title}
-      </button>
-    )
-  }
-
-  if (hasTrays) {
-    return (
-      <button
-        className="day-title day-title--empty"
-        onClick={() => setEditing(true)}
-      >
-        + name lineup
-      </button>
-    )
-  }
-
-  return null
+      <div className="lineup-swatches">
+        {LINEUP_COLORS.map((c) => (
+          <button
+            key={c.value || 'none'}
+            className={
+              'lineup-swatch' + (draftColor === c.value ? ' lineup-swatch--on' : '')
+            }
+            title={c.label}
+            style={
+              c.value
+                ? { background: c.value }
+                : { background: 'var(--surface)', border: '1px solid var(--border-strong)' }
+            }
+            onClick={() => setDraftColor(c.value)}
+          >
+            {!c.value && <span className="lineup-swatch-x">∅</span>}
+          </button>
+        ))}
+      </div>
+      <div className="lineup-editor-actions">
+        <button
+          className="btn btn--primary btn--sm"
+          onClick={() => onSave(draftTitle.trim(), draftColor)}
+        >
+          Save
+        </button>
+        <button className="btn btn--ghost btn--sm" onClick={onClose}>
+          Cancel
+        </button>
+        {hasTrays && (
+          <button
+            className="btn btn--danger btn--sm lineup-delete"
+            title="Delete this whole day's lineup"
+            onClick={onDelete}
+          >
+            Delete lineup
+          </button>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function DropChooser({

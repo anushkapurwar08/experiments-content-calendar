@@ -42,13 +42,27 @@ export interface DayTray {
 
 export type DayTrayDraft = Pick<DayTray, 'day' | 'name' | 'position'>
 
-// An optional title/heading for a day's lineup (e.g. "baseline new users").
-// Travels with the trays when a day is copied or moved.
+// An optional title/heading for a day's lineup (e.g. "baseline new users") plus
+// a color. Travels with the trays when a day is copied or moved.
 export interface DayLineup {
   day: string // 'YYYY-MM-DD'
   title: string
+  color: string // '' = default (no custom color)
   updated_at: string
 }
+
+// Preset palette for lineup colors. First entry ('') means "no color".
+export const LINEUP_COLORS: { value: string; label: string }[] = [
+  { value: '', label: 'Default' },
+  { value: '#4f46e5', label: 'Indigo' },
+  { value: '#0ea5e9', label: 'Sky' },
+  { value: '#22c55e', label: 'Green' },
+  { value: '#f59e0b', label: 'Amber' },
+  { value: '#ef4444', label: 'Red' },
+  { value: '#ec4899', label: 'Pink' },
+  { value: '#8b5cf6', label: 'Violet' },
+  { value: '#14b8a6', label: 'Teal' },
+]
 
 // Day-wise "images of that day" link (one row per calendar day).
 export interface DayLink {
