@@ -1,14 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Calendar from './Calendar'
-import ExperimentModal from './ExperimentModal'
 import LinksBar from './LinksBar'
-import {
-  createExperiment,
-  deleteExperiment,
-  fetchExperiments,
-  subscribeToExperiments,
-  updateExperiment,
-} from './experiments'
 import {
   copyDayLineup,
   copyDayTrays,
@@ -33,49 +25,32 @@ import {
 import { isConfigured } from './supabase'
 import { addDaysISO, monthLabel } from './dates'
 import {
-  STATUS_META,
-  STATUS_ORDER,
   type DayLineup,
   type DayLink,
   type DayTray,
-  type Experiment,
-  type ExperimentDraft,
   type SettingKey,
 } from './types'
 import './App.css'
 
-// The calendar opens here per the brief: experiments start 9 July 2026.
+// The calendar opens on July 2026 per the brief.
 const INITIAL_YEAR = 2026
 const INITIAL_MONTH = 6 // 0-indexed → July
-
-interface ModalState {
-  existing: Experiment | null
-  defaultDate: string
-}
 
 export default function App() {
   const [year, setYear] = useState(INITIAL_YEAR)
   const [month, setMonth] = useState(INITIAL_MONTH)
-  const [experiments, setExperiments] = useState<Experiment[]>([])
   const [dayTrays, setDayTrays] = useState<DayTray[]>([])
   const [dayLineups, setDayLineups] = useState<DayLineup[]>([])
   const [dayLinks, setDayLinks] = useState<DayLink[]>([])
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(isConfigured)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [modal, setModal] = useState<ModalState | null>(null)
 
   const reload = useCallback(async () => {
     if (!isConfigured) return
     try {
-      // Experiments are the critical fetch; the planner tables degrade
-      // gracefully so the calendar still renders if they're not set up yet.
-      const exps = await fetchExperiments()
-      setExperiments(exps)
-      setLoadError(null)
-
       const [trs, lineups, links, sets] = await Promise.all([
-        fetchDayTrays().catch(() => [] as DayTray[]),
+        fetchDayTrays(),
         fetchDayLineups().catch(() => [] as DayLineup[]),
         fetchDayLinks().catch(() => [] as DayLink[]),
         fetchSettings().catch(() => ({}) as Record<string, string>),
@@ -84,6 +59,7 @@ export default function App() {
       setDayLineups(lineups)
       setDayLinks(links)
       setSettings(sets)
+      setLoadError(null)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load.')
     } finally {
@@ -93,11 +69,7 @@ export default function App() {
 
   useEffect(() => {
     reload()
-    const unsubs = [
-      subscribeToExperiments(reload),
-      subscribeToDayTrays(reload),
-      subscribeToLinks(reload),
-    ]
+    const unsubs = [subscribeToDayTrays(reload), subscribeToLinks(reload)]
     return () => unsubs.forEach((u) => u())
   }, [reload])
 
@@ -123,20 +95,6 @@ export default function App() {
     const now = new Date()
     setYear(now.getFullYear())
     setMonth(now.getMonth())
-  }
-
-  const handleSave = async (draft: ExperimentDraft, id?: string) => {
-    if (id) {
-      await updateExperiment(id, draft)
-    } else {
-      await createExperiment(draft)
-    }
-    await reload()
-  }
-
-  const handleDelete = async (id: string) => {
-    await deleteExperiment(id)
-    await reload()
   }
 
   const handleReorderTrays = async (_day: string, orderedIds: string[]) => {
@@ -230,13 +188,6 @@ export default function App() {
     await reload()
   }
 
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    for (const s of STATUS_ORDER) counts[s] = 0
-    for (const e of experiments) counts[e.status] = (counts[e.status] ?? 0) + 1
-    return counts
-  }, [experiments])
-
   if (!isConfigured) {
     return <NotConfigured />
   }
@@ -247,17 +198,10 @@ export default function App() {
         <div className="header-left">
           <h1 className="app-title">Experiments Calendar</h1>
           <p className="app-subtitle">
-            Plan, run, and track experiments — shared with anyone who has the link.
+            Name a day to start an experiment, then line up its trays. Shared with
+            anyone who has the link.
           </p>
         </div>
-        <button
-          className="btn btn--primary btn--lg"
-          onClick={() =>
-            setModal({ existing: null, defaultDate: `${INITIAL_YEAR}-07-09` })
-          }
-        >
-          + New experiment
-        </button>
       </header>
 
       <LinksBar
@@ -279,18 +223,9 @@ export default function App() {
             Today
           </button>
         </div>
-        <div className="legend">
-          {STATUS_ORDER.map((s) => (
-            <span key={s} className="legend-item">
-              <span
-                className="legend-dot"
-                style={{ background: STATUS_META[s].color }}
-              />
-              {STATUS_META[s].label}
-              <span className="legend-count">{statusCounts[s]}</span>
-            </span>
-          ))}
-        </div>
+        <p className="toolbar-hint">
+          Click <strong>+ name experiment</strong> on any day to begin
+        </p>
       </div>
 
       {loadError && (
@@ -304,13 +239,9 @@ export default function App() {
         <Calendar
           year={year}
           month={month}
-          experiments={experiments}
           dayTrays={dayTrays}
           dayLineups={dayLineups}
           dayLinks={dayLinks}
-          onOpenExperiment={(exp) =>
-            setModal({ existing: exp, defaultDate: exp.start_date })
-          }
           onReorderTrays={handleReorderTrays}
           onAddTray={handleAddTray}
           onDeleteTray={handleDeleteTray}
@@ -321,16 +252,6 @@ export default function App() {
           onSaveLineup={handleSaveLineup}
           onDeleteLineup={handleDeleteLineup}
           onSaveDayLink={handleSaveDayLink}
-        />
-      )}
-
-      {modal && (
-        <ExperimentModal
-          existing={modal.existing}
-          defaultDate={modal.defaultDate}
-          onSave={handleSave}
-          onDelete={handleDelete}
-          onClose={() => setModal(null)}
         />
       )}
     </div>

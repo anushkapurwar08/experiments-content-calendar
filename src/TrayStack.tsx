@@ -129,7 +129,7 @@ export default function TrayStack({
           {trays.length === 0 && canCopyPrev && (
             <button
               className="daytray-copybtn"
-              title="Copy the previous day's lineup"
+              title="Copy the previous day's experiment"
               onClick={() => onCopyPrev(day)}
             >
               ⧉ copy prev

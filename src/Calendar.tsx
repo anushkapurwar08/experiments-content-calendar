@@ -11,25 +11,21 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core'
-import { buildMonthGrid, coversDay, daysInRange, WEEKDAY_LABELS } from './dates'
+import { buildMonthGrid, daysInRange, WEEKDAY_LABELS } from './dates'
 import {
   LINEUP_COLORS,
-  STATUS_META,
   type DayLineup,
   type DayLink,
   type DayTray,
-  type Experiment,
 } from './types'
 import TrayStack from './TrayStack'
 
 interface Props {
   year: number
   month: number
-  experiments: Experiment[]
   dayTrays: DayTray[]
   dayLineups: DayLineup[]
   dayLinks: DayLink[]
-  onOpenExperiment: (exp: Experiment) => void
   onReorderTrays: (day: string, orderedIds: string[]) => void
   onAddTray: (day: string, name: string) => void
   onDeleteTray: (id: string) => void
@@ -56,11 +52,9 @@ function fmtDay(iso: string): string {
 export default function Calendar({
   year,
   month,
-  experiments,
   dayTrays,
   dayLineups,
   dayLinks,
-  onOpenExperiment,
   onReorderTrays,
   onAddTray,
   onDeleteTray,
@@ -163,9 +157,6 @@ export default function Calendar({
       >
         <div className="month-grid">
           {cells.map((cell) => {
-            const dayExps = experiments.filter((e) =>
-              coversDay(cell.iso, e.start_date, e.end_date),
-            )
             const trays = (traysByDay.get(cell.iso) ?? [])
               .slice()
               .sort((a, b) => a.position - b.position)
@@ -203,39 +194,6 @@ export default function Calendar({
                 onStartFill={startFill(cell.iso)}
                 onEditLink={() => setLinkEditDay(cell.iso)}
               >
-                {dayExps.length > 0 && (
-                  <div className="day-pills">
-                    {dayExps.map((exp) => {
-                      const meta = STATUS_META[exp.status]
-                      const isStart = exp.start_date === cell.iso
-                      const isEnd = exp.end_date === cell.iso
-                      const isRange = exp.start_date !== exp.end_date
-                      return (
-                        <button
-                          key={exp.id}
-                          className={
-                            'pill' +
-                            (isRange ? ' pill--range' : '') +
-                            (isRange && !isStart ? ' pill--continued' : '') +
-                            (isRange && !isEnd ? ' pill--extends' : '')
-                          }
-                          style={{ background: meta.color, color: meta.text }}
-                          title={`${exp.title} — ${meta.label}`}
-                          onClick={() => onOpenExperiment(exp)}
-                        >
-                          {isStart || !isRange ? (
-                            <span className="pill-label">{exp.title}</span>
-                          ) : (
-                            <span className="pill-label pill-label--ghost">
-                              {exp.title}
-                            </span>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-
                 <DayTitle
                   title={title}
                   color={color}
@@ -365,8 +323,8 @@ function DayCell({
       {hasTrays && (
         <button
           className={'day-fillhandle' + (isFillSource ? ' day-fillhandle--active' : '')}
-          title="Drag across days to fill this lineup (like Excel)"
-          aria-label="Fill this lineup across days"
+          title="Drag across days to fill this experiment (like Excel)"
+          aria-label="Fill this experiment across days"
           onPointerDown={onStartFill}
         />
       )}
@@ -402,7 +360,7 @@ function DayDragGrip({ iso }: { iso: string }) {
     <button
       ref={setNodeRef}
       className={'day-movegrip' + (isDragging ? ' day-movegrip--active' : '')}
-      title="Drag this whole day's lineup onto another day"
+      title="Drag this whole day's experiment onto another day"
       {...attributes}
       {...listeners}
     >
@@ -426,14 +384,12 @@ function DayTitle({
 }) {
   const [open, setOpen] = useState(false)
 
-  if (!title && !hasTrays) return null
-
   return (
     <div className="day-title-wrap">
       {title ? (
         <button
           className="day-title"
-          title="Edit this lineup"
+          title="Edit this experiment (rename, color, delete)"
           style={color ? { color, background: color + '1a' } : undefined}
           onClick={() => setOpen(true)}
         >
@@ -444,7 +400,7 @@ function DayTitle({
         </button>
       ) : (
         <button className="day-title day-title--empty" onClick={() => setOpen(true)}>
-          + name lineup
+          + name experiment
         </button>
       )}
 
@@ -488,12 +444,12 @@ function LineupEditor({
 
   return (
     <div className="lineup-editor" onClick={(e) => e.stopPropagation()}>
-      <div className="lineup-editor-title">Lineup</div>
+      <div className="lineup-editor-title">Experiment</div>
       <input
         className="input input--sm"
         autoFocus
         value={draftTitle}
-        placeholder="Name this lineup…"
+        placeholder="Name this experiment…"
         onChange={(e) => setDraftTitle(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') onSave(draftTitle.trim(), draftColor)
@@ -532,10 +488,10 @@ function LineupEditor({
         {hasTrays && (
           <button
             className="btn btn--danger btn--sm lineup-delete"
-            title="Delete this whole day's lineup"
+            title="Delete this whole day's experiment"
             onClick={onDelete}
           >
-            Delete lineup
+            Delete experiment
           </button>
         )}
       </div>
@@ -563,7 +519,7 @@ function DropChooser({
           {fmtDay(from)} → {fmtDay(to)}
         </div>
         <div className="dropchooser-sub">
-          What should happen to this lineup?
+          What should happen to this experiment?
         </div>
         <div className="dropchooser-actions">
           <button className="btn btn--primary btn--sm" onClick={onCopy}>

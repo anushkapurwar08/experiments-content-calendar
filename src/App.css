@@ -65,6 +65,15 @@
   border-color: var(--border-strong);
 }
 
+.toolbar-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.toolbar-hint strong {
+  color: var(--accent);
+  font-weight: 650;
+}
+
 .legend {
   display: flex;
   align-items: center;
