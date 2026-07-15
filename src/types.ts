@@ -42,6 +42,14 @@ export interface DayTray {
 
 export type DayTrayDraft = Pick<DayTray, 'day' | 'name' | 'position'>
 
+// An optional title/heading for a day's lineup (e.g. "baseline new users").
+// Travels with the trays when a day is copied or moved.
+export interface DayLineup {
+  day: string // 'YYYY-MM-DD'
+  title: string
+  updated_at: string
+}
+
 // Day-wise "images of that day" link (one row per calendar day).
 export interface DayLink {
   day: string // 'YYYY-MM-DD'

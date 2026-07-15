@@ -56,6 +56,14 @@ create table if not exists public.day_trays (
 create index if not exists day_trays_day_position_idx
   on public.day_trays (day, position);
 
+-- Optional heading/title for a day's lineup (e.g. "baseline new users").
+-- Travels with the trays when a day is copied or moved.
+create table if not exists public.day_lineups (
+  day         date primary key,
+  title       text not null default '',
+  updated_at  timestamptz not null default now()
+);
+
 -- Day-wise "images of that day" links (one row per calendar day).
 create table if not exists public.day_links (
   day         date primary key,
@@ -76,6 +84,11 @@ drop policy if exists "anon full access" on public.day_trays;
 create policy "anon full access" on public.day_trays
   for all to anon using (true) with check (true);
 
+alter table public.day_lineups enable row level security;
+drop policy if exists "anon full access" on public.day_lineups;
+create policy "anon full access" on public.day_lineups
+  for all to anon using (true) with check (true);
+
 alter table public.day_links enable row level security;
 drop policy if exists "anon full access" on public.day_links;
 create policy "anon full access" on public.day_links
@@ -88,5 +101,6 @@ create policy "anon full access" on public.app_settings
 
 -- Realtime for live collaboration.
 alter publication supabase_realtime add table public.day_trays;
+alter publication supabase_realtime add table public.day_lineups;
 alter publication supabase_realtime add table public.day_links;
 alter publication supabase_realtime add table public.app_settings;

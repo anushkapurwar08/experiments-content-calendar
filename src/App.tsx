@@ -10,13 +10,16 @@ import {
   updateExperiment,
 } from './experiments'
 import {
+  copyDayLineup,
   copyDayTrays,
   createDayTray,
   deleteDayTray,
+  fetchDayLineups,
   fetchDayTrays,
-  moveDayTrays,
+  moveDayLineup,
   reorderDayTrays,
   subscribeToDayTrays,
+  upsertDayLineupTitle,
 } from './trays'
 import {
   fetchDayLinks,
@@ -30,6 +33,7 @@ import { addDaysISO, monthLabel } from './dates'
 import {
   STATUS_META,
   STATUS_ORDER,
+  type DayLineup,
   type DayLink,
   type DayTray,
   type Experiment,
@@ -52,6 +56,7 @@ export default function App() {
   const [month, setMonth] = useState(INITIAL_MONTH)
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [dayTrays, setDayTrays] = useState<DayTray[]>([])
+  const [dayLineups, setDayLineups] = useState<DayLineup[]>([])
   const [dayLinks, setDayLinks] = useState<DayLink[]>([])
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(isConfigured)
@@ -67,12 +72,14 @@ export default function App() {
       setExperiments(exps)
       setLoadError(null)
 
-      const [trs, links, sets] = await Promise.all([
+      const [trs, lineups, links, sets] = await Promise.all([
         fetchDayTrays().catch(() => [] as DayTray[]),
+        fetchDayLineups().catch(() => [] as DayLineup[]),
         fetchDayLinks().catch(() => [] as DayLink[]),
         fetchSettings().catch(() => ({}) as Record<string, string>),
       ])
       setDayTrays(trs)
+      setDayLineups(lineups)
       setDayLinks(links)
       setSettings(sets)
     } catch (e) {
@@ -158,18 +165,24 @@ export default function App() {
     await reload()
   }
 
+  const handleCopyDay = async (fromDay: string, toDay: string) => {
+    await copyDayLineup(fromDay, toDay)
+    await reload()
+  }
+
   const handleMoveDay = async (fromDay: string, toDay: string) => {
-    // Optimistic: swap the two days' trays locally (empty target = clean move).
+    // Optimistic: relocate source trays to the target, clearing the target's own.
     setDayTrays((prev) =>
-      prev.map((t) =>
-        t.day === fromDay
-          ? { ...t, day: toDay }
-          : t.day === toDay
-            ? { ...t, day: fromDay }
-            : t,
-      ),
+      prev
+        .filter((t) => t.day !== toDay)
+        .map((t) => (t.day === fromDay ? { ...t, day: toDay } : t)),
     )
-    await moveDayTrays(fromDay, toDay)
+    await moveDayLineup(fromDay, toDay)
+    await reload()
+  }
+
+  const handleSaveTitle = async (day: string, title: string) => {
+    await upsertDayLineupTitle(day, title)
     await reload()
   }
 
@@ -259,6 +272,7 @@ export default function App() {
           month={month}
           experiments={experiments}
           dayTrays={dayTrays}
+          dayLineups={dayLineups}
           dayLinks={dayLinks}
           onOpenExperiment={(exp) =>
             setModal({ existing: exp, defaultDate: exp.start_date })
@@ -267,7 +281,9 @@ export default function App() {
           onAddTray={handleAddTray}
           onDeleteTray={handleDeleteTray}
           onCopyPrev={handleCopyPrev}
+          onCopyDay={handleCopyDay}
           onMoveDay={handleMoveDay}
+          onSaveTitle={handleSaveTitle}
           onSaveDayLink={handleSaveDayLink}
         />
       )}

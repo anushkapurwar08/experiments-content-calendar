@@ -1,7 +1,8 @@
 import { supabase } from './supabase'
-import type { DayTray, DayTrayDraft } from './types'
+import type { DayLineup, DayTray, DayTrayDraft } from './types'
 
 const TABLE = 'day_trays'
+const LINEUP_TABLE = 'day_lineups'
 
 export async function fetchDayTrays(): Promise<DayTray[]> {
   if (!supabase) return []
@@ -41,31 +42,12 @@ export async function reorderDayTrays(orderedIds: string[]): Promise<void> {
   )
 }
 
-// Move a whole day's lineup onto another day. If the target day already has a
-// lineup, the two days swap (reversible, nothing is lost). Rows keep their own
-// position values, so each day's internal order survives the move.
-export async function moveDayTrays(fromDay: string, toDay: string): Promise<void> {
+// Copy an entire day's lineup (trays + title) onto another day. The source is
+// left untouched. Any existing trays on the target day are replaced so the
+// target ends up as an exact copy of the source.
+export async function copyDayLineup(fromDay: string, toDay: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not configured')
   if (fromDay === toDay) return
-  const client = supabase
-  const { data, error } = await client
-    .from(TABLE)
-    .select('id, day')
-    .in('day', [fromDay, toDay])
-  if (error) throw error
-  const rows = data as { id: string; day: string }[]
-  const fromIds = rows.filter((r) => r.day === fromDay).map((r) => r.id)
-  const toIds = rows.filter((r) => r.day === toDay).map((r) => r.id)
-  if (fromIds.length === 0) return
-  await Promise.all([
-    ...fromIds.map((id) => client.from(TABLE).update({ day: toDay }).eq('id', id)),
-    ...toIds.map((id) => client.from(TABLE).update({ day: fromDay }).eq('id', id)),
-  ])
-}
-
-// Copy an entire day's lineup onto another day (for "same as yesterday").
-export async function copyDayTrays(fromDay: string, toDay: string): Promise<void> {
-  if (!supabase) throw new Error('Supabase not configured')
   const client = supabase
   const { data, error } = await client
     .from(TABLE)
@@ -73,14 +55,90 @@ export async function copyDayTrays(fromDay: string, toDay: string): Promise<void
     .eq('day', fromDay)
     .order('position', { ascending: true })
   if (error) throw error
-  const rows = (data as { name: string; position: number }[]).map((r) => ({
-    day: toDay,
-    name: r.name,
-    position: r.position,
-  }))
-  if (rows.length === 0) return
-  const { error: insErr } = await client.from(TABLE).insert(rows)
-  if (insErr) throw insErr
+  const src = data as { name: string; position: number }[]
+
+  // Clear the target's current lineup, then copy the source's rows in.
+  await client.from(TABLE).delete().eq('day', toDay)
+  if (src.length > 0) {
+    const rows = src.map((r) => ({ day: toDay, name: r.name, position: r.position }))
+    const { error: insErr } = await client.from(TABLE).insert(rows)
+    if (insErr) throw insErr
+  }
+  await copyLineupTitle(fromDay, toDay)
+}
+
+// Move a whole day's lineup (trays + title) onto another day. The source day is
+// left empty; the target's previous lineup is replaced.
+export async function moveDayLineup(fromDay: string, toDay: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (fromDay === toDay) return
+  const client = supabase
+  // Drop whatever is on the target, then relocate the source rows onto it.
+  await client.from(TABLE).delete().eq('day', toDay)
+  const { error } = await client
+    .from(TABLE)
+    .update({ day: toDay })
+    .eq('day', fromDay)
+  if (error) throw error
+  await moveLineupTitle(fromDay, toDay)
+}
+
+// Copy an entire day's lineup onto another day (for the "copy prev" button).
+export async function copyDayTrays(fromDay: string, toDay: string): Promise<void> {
+  return copyDayLineup(fromDay, toDay)
+}
+
+// ---- Lineup titles -------------------------------------------------------
+
+export async function fetchDayLineups(): Promise<DayLineup[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase.from(LINEUP_TABLE).select('*')
+  if (error) throw error
+  return data as DayLineup[]
+}
+
+export async function upsertDayLineupTitle(
+  day: string,
+  title: string,
+): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured')
+  const client = supabase
+  const trimmed = title.trim()
+  if (!trimmed) {
+    // Empty title clears the row so we don't accumulate blanks.
+    const { error } = await client.from(LINEUP_TABLE).delete().eq('day', day)
+    if (error) throw error
+    return
+  }
+  const { error } = await client
+    .from(LINEUP_TABLE)
+    .upsert({ day, title: trimmed, updated_at: new Date().toISOString() })
+  if (error) throw error
+}
+
+async function copyLineupTitle(fromDay: string, toDay: string): Promise<void> {
+  const client = supabase
+  if (!client) return
+  const { data } = await client
+    .from(LINEUP_TABLE)
+    .select('title')
+    .eq('day', fromDay)
+    .maybeSingle()
+  const title = (data as { title: string } | null)?.title ?? ''
+  await upsertDayLineupTitle(toDay, title)
+}
+
+async function moveLineupTitle(fromDay: string, toDay: string): Promise<void> {
+  const client = supabase
+  if (!client) return
+  const { data } = await client
+    .from(LINEUP_TABLE)
+    .select('title')
+    .eq('day', fromDay)
+    .maybeSingle()
+  const title = (data as { title: string } | null)?.title ?? ''
+  await upsertDayLineupTitle(toDay, title)
+  await client.from(LINEUP_TABLE).delete().eq('day', fromDay)
 }
 
 export function subscribeToDayTrays(onChange: () => void): () => void {
@@ -91,6 +149,11 @@ export function subscribeToDayTrays(onChange: () => void): () => void {
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: TABLE },
+      () => onChange(),
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: LINEUP_TABLE },
       () => onChange(),
     )
     .subscribe()
