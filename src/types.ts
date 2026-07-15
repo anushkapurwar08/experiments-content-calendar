@@ -31,16 +31,16 @@ export const STATUS_ORDER: ExperimentStatus[] = [
   'blocked',
 ]
 
-// A tray (vertical card) inside an experiment. `position` orders them (0 = top).
-export interface Tray {
+// A tray block in a day's published lineup. `position` orders them (0 = top).
+export interface DayTray {
   id: string
-  experiment_id: string
+  day: string // 'YYYY-MM-DD'
   name: string
   position: number
   created_at: string
 }
 
-export type TrayDraft = Pick<Tray, 'experiment_id' | 'name' | 'position'>
+export type DayTrayDraft = Pick<DayTray, 'day' | 'name' | 'position'>
 
 // Day-wise "images of that day" link (one row per calendar day).
 export interface DayLink {

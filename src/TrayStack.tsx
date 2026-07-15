@@ -16,29 +16,34 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { Tray } from './types'
+import type { DayTray } from './types'
 
 interface Props {
-  experimentId: string
-  trays: Tray[] // already sorted by position, for this experiment
-  allTrayNames: string[] // for autocomplete across experiments
-  onReorder: (orderedIds: string[]) => void
-  onAddTray: (experimentId: string, name: string) => void
+  day: string
+  trays: DayTray[] // already sorted by position, for this day
+  allTrayNames: string[] // autocomplete across all days
+  canCopyPrev: boolean
+  onReorder: (day: string, orderedIds: string[]) => void
+  onAddTray: (day: string, name: string) => void
   onDeleteTray: (id: string) => void
+  onCopyPrev: (day: string) => void
 }
 
 export default function TrayStack({
-  experimentId,
+  day,
   trays,
   allTrayNames,
+  canCopyPrev,
   onReorder,
   onAddTray,
   onDeleteTray,
+  onCopyPrev,
 }: Props) {
+  const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
@@ -51,20 +56,24 @@ export default function TrayStack({
     const from = ids.indexOf(active.id as string)
     const to = ids.indexOf(over.id as string)
     if (from === -1 || to === -1) return
-    onReorder(arrayMove(ids, from, to))
+    onReorder(day, arrayMove(ids, from, to))
   }
 
   const submitNew = () => {
     const name = newName.trim()
-    if (!name) return
-    onAddTray(experimentId, name)
+    if (!name) {
+      setAdding(false)
+      return
+    }
+    onAddTray(day, name)
     setNewName('')
+    // keep the input open so several trays can be added in a row
   }
 
-  const listId = `trays-${experimentId}`
+  const listId = `daytrays-${day}`
 
   return (
-    <div className="tray-stack">
+    <div className="daytray-stack">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -74,11 +83,8 @@ export default function TrayStack({
           items={trays.map((t) => t.id)}
           strategy={verticalListSortingStrategy}
         >
-          {trays.length === 0 && (
-            <p className="tray-empty">No trays yet — add the first one below.</p>
-          )}
           {trays.map((tray, i) => (
-            <TrayCard
+            <TrayBlock
               key={tray.id}
               tray={tray}
               index={i}
@@ -88,36 +94,56 @@ export default function TrayStack({
         </SortableContext>
       </DndContext>
 
-      <div className="tray-add">
-        <input
-          className="input input--sm"
-          list={listId}
-          value={newName}
-          placeholder="Add a tray…"
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') submitNew()
-          }}
-        />
-        <datalist id={listId}>
-          {allTrayNames.map((n) => (
-            <option key={n} value={n} />
-          ))}
-        </datalist>
-        <button className="btn btn--ghost btn--sm" onClick={submitNew}>
-          + Add
-        </button>
-      </div>
+      {adding ? (
+        <div className="daytray-add">
+          <input
+            className="input input--sm"
+            list={listId}
+            value={newName}
+            autoFocus
+            placeholder="Tray name…"
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submitNew()
+              if (e.key === 'Escape') {
+                setNewName('')
+                setAdding(false)
+              }
+            }}
+            onBlur={submitNew}
+          />
+          <datalist id={listId}>
+            {allTrayNames.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+        </div>
+      ) : (
+        <div className="daytray-actions">
+          <button className="daytray-addbtn" onClick={() => setAdding(true)}>
+            + tray
+          </button>
+          {trays.length === 0 && canCopyPrev && (
+            <button
+              className="daytray-copybtn"
+              title="Copy the previous day's lineup"
+              onClick={() => onCopyPrev(day)}
+            >
+              ⧉ copy prev
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
-function TrayCard({
+function TrayBlock({
   tray,
   index,
   onDelete,
 }: {
-  tray: Tray
+  tray: DayTray
   index: number
   onDelete: () => void
 }) {
@@ -133,30 +159,28 @@ function TrayCard({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    zIndex: isDragging ? 2 : undefined,
-    opacity: isDragging ? 0.85 : 1,
+    zIndex: isDragging ? 3 : undefined,
+    opacity: isDragging ? 0.9 : 1,
   }
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={'tray-card' + (isDragging ? ' tray-card--dragging' : '')}
+      className={'daytray' + (isDragging ? ' daytray--dragging' : '')}
+      {...attributes}
+      {...listeners}
     >
+      <span className="daytray-pos">{index + 1}</span>
+      <span className="daytray-name">{tray.name}</span>
       <button
-        className="tray-handle"
-        aria-label="Drag to reorder"
-        {...attributes}
-        {...listeners}
-      >
-        ⠿
-      </button>
-      <span className="tray-pos">{index + 1}</span>
-      <span className="tray-name">{tray.name}</span>
-      <button
-        className="tray-delete"
+        className="daytray-del"
         aria-label={`Remove ${tray.name}`}
-        onClick={onDelete}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation()
+          onDelete()
+        }}
       >
         ×
       </button>

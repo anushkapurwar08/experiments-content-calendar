@@ -43,18 +43,18 @@ alter publication supabase_realtime add table public.experiments;
 -- Tray-sequencing planner
 -- ---------------------------------------------------------------------------
 
--- Trays: the vertical cards inside an experiment. `position` is the sequence
--- within one experiment (0 = top).
-create table if not exists public.trays (
-  id             uuid primary key default gen_random_uuid(),
-  experiment_id  uuid not null references public.experiments(id) on delete cascade,
-  name           text not null,
-  position       int not null default 0,
-  created_at     timestamptz not null default now()
+-- Day trays: the ordered stack of tray blocks published on a given day.
+-- `position` is the sequence within that day (0 = top of the lineup).
+create table if not exists public.day_trays (
+  id          uuid primary key default gen_random_uuid(),
+  day         date not null,
+  name        text not null,
+  position    int not null default 0,
+  created_at  timestamptz not null default now()
 );
 
-create index if not exists trays_experiment_position_idx
-  on public.trays (experiment_id, position);
+create index if not exists day_trays_day_position_idx
+  on public.day_trays (day, position);
 
 -- Day-wise "images of that day" links (one row per calendar day).
 create table if not exists public.day_links (
@@ -71,9 +71,9 @@ create table if not exists public.app_settings (
 );
 
 -- Same "anyone with the link can view + edit" model as experiments.
-alter table public.trays enable row level security;
-drop policy if exists "anon full access" on public.trays;
-create policy "anon full access" on public.trays
+alter table public.day_trays enable row level security;
+drop policy if exists "anon full access" on public.day_trays;
+create policy "anon full access" on public.day_trays
   for all to anon using (true) with check (true);
 
 alter table public.day_links enable row level security;
@@ -87,6 +87,6 @@ create policy "anon full access" on public.app_settings
   for all to anon using (true) with check (true);
 
 -- Realtime for live collaboration.
-alter publication supabase_realtime add table public.trays;
+alter publication supabase_realtime add table public.day_trays;
 alter publication supabase_realtime add table public.day_links;
 alter publication supabase_realtime add table public.app_settings;

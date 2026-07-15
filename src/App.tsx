@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Calendar from './Calendar'
 import ExperimentModal from './ExperimentModal'
 import LinksBar from './LinksBar'
-import Timeline from './Timeline'
 import {
   createExperiment,
   deleteExperiment,
@@ -11,11 +10,12 @@ import {
   updateExperiment,
 } from './experiments'
 import {
-  createTray,
-  deleteTray,
-  fetchTrays,
-  reorderTrays,
-  subscribeToTrays,
+  copyDayTrays,
+  createDayTray,
+  deleteDayTray,
+  fetchDayTrays,
+  reorderDayTrays,
+  subscribeToDayTrays,
 } from './trays'
 import {
   fetchDayLinks,
@@ -25,15 +25,15 @@ import {
   upsertSetting,
 } from './links'
 import { isConfigured } from './supabase'
-import { monthLabel } from './dates'
+import { addDaysISO, monthLabel } from './dates'
 import {
   STATUS_META,
   STATUS_ORDER,
   type DayLink,
+  type DayTray,
   type Experiment,
   type ExperimentDraft,
   type SettingKey,
-  type Tray,
 } from './types'
 import './App.css'
 
@@ -50,7 +50,7 @@ export default function App() {
   const [year, setYear] = useState(INITIAL_YEAR)
   const [month, setMonth] = useState(INITIAL_MONTH)
   const [experiments, setExperiments] = useState<Experiment[]>([])
-  const [trays, setTrays] = useState<Tray[]>([])
+  const [dayTrays, setDayTrays] = useState<DayTray[]>([])
   const [dayLinks, setDayLinks] = useState<DayLink[]>([])
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(isConfigured)
@@ -60,18 +60,18 @@ export default function App() {
   const reload = useCallback(async () => {
     if (!isConfigured) return
     try {
-      // Experiments are the critical fetch; the tray-planner tables degrade
+      // Experiments are the critical fetch; the planner tables degrade
       // gracefully so the calendar still renders if they're not set up yet.
       const exps = await fetchExperiments()
       setExperiments(exps)
       setLoadError(null)
 
       const [trs, links, sets] = await Promise.all([
-        fetchTrays().catch(() => [] as Tray[]),
+        fetchDayTrays().catch(() => [] as DayTray[]),
         fetchDayLinks().catch(() => [] as DayLink[]),
         fetchSettings().catch(() => ({}) as Record<string, string>),
       ])
-      setTrays(trs)
+      setDayTrays(trs)
       setDayLinks(links)
       setSettings(sets)
     } catch (e) {
@@ -85,7 +85,7 @@ export default function App() {
     reload()
     const unsubs = [
       subscribeToExperiments(reload),
-      subscribeToTrays(reload),
+      subscribeToDayTrays(reload),
       subscribeToLinks(reload),
     ]
     return () => unsubs.forEach((u) => u())
@@ -129,48 +129,31 @@ export default function App() {
     await reload()
   }
 
-  const handleUpdateDates = async (
-    id: string,
-    startISO: string,
-    endISO: string,
-  ) => {
-    // Optimistic: reflect the drag immediately, then persist.
-    setExperiments((prev) =>
-      prev.map((e) =>
-        e.id === id ? { ...e, start_date: startISO, end_date: endISO } : e,
-      ),
-    )
-    const exp = experiments.find((e) => e.id === id)
-    if (!exp) return
-    await updateExperiment(id, {
-      title: exp.title,
-      start_date: startISO,
-      end_date: endISO,
-      status: exp.status,
-      owner: exp.owner,
-      notes: exp.notes,
-    })
-    await reload()
-  }
-
-  const handleReorderTrays = async (orderedIds: string[]) => {
+  const handleReorderTrays = async (_day: string, orderedIds: string[]) => {
     // Optimistic local reorder for snappy feel.
-    setTrays((prev) => {
+    setDayTrays((prev) => {
       const pos = new Map(orderedIds.map((id, i) => [id, i]))
-      return prev.map((t) => (pos.has(t.id) ? { ...t, position: pos.get(t.id)! } : t))
+      return prev.map((t) =>
+        pos.has(t.id) ? { ...t, position: pos.get(t.id)! } : t,
+      )
     })
-    await reorderTrays(orderedIds)
+    await reorderDayTrays(orderedIds)
     await reload()
   }
 
-  const handleAddTray = async (experimentId: string, name: string) => {
-    const existing = trays.filter((t) => t.experiment_id === experimentId)
-    await createTray({ experiment_id: experimentId, name, position: existing.length })
+  const handleAddTray = async (day: string, name: string) => {
+    const existing = dayTrays.filter((t) => t.day === day)
+    await createDayTray({ day, name, position: existing.length })
     await reload()
   }
 
   const handleDeleteTray = async (id: string) => {
-    await deleteTray(id)
+    await deleteDayTray(id)
+    await reload()
+  }
+
+  const handleCopyPrev = async (day: string) => {
+    await copyDayTrays(addDaysISO(day, -1), day)
     await reload()
   }
 
@@ -255,35 +238,21 @@ export default function App() {
       {loading ? (
         <div className="banner">Loading…</div>
       ) : (
-        <>
-          <Calendar
-            year={year}
-            month={month}
-            experiments={experiments}
-            onAddOnDay={(iso) => setModal({ existing: null, defaultDate: iso })}
-            onOpenExperiment={(exp) =>
-              setModal({ existing: exp, defaultDate: exp.start_date })
-            }
-          />
-          <Timeline
-            year={year}
-            month={month}
-            experiments={experiments}
-            trays={trays}
-            dayLinks={dayLinks}
-            onUpdateDates={handleUpdateDates}
-            onNewExperiment={() =>
-              setModal({ existing: null, defaultDate: `${year}-${String(month + 1).padStart(2, '0')}-01` })
-            }
-            onOpenExperiment={(exp) =>
-              setModal({ existing: exp, defaultDate: exp.start_date })
-            }
-            onReorderTrays={handleReorderTrays}
-            onAddTray={handleAddTray}
-            onDeleteTray={handleDeleteTray}
-            onSaveDayLink={handleSaveDayLink}
-          />
-        </>
+        <Calendar
+          year={year}
+          month={month}
+          experiments={experiments}
+          dayTrays={dayTrays}
+          dayLinks={dayLinks}
+          onOpenExperiment={(exp) =>
+            setModal({ existing: exp, defaultDate: exp.start_date })
+          }
+          onReorderTrays={handleReorderTrays}
+          onAddTray={handleAddTray}
+          onDeleteTray={handleDeleteTray}
+          onCopyPrev={handleCopyPrev}
+          onSaveDayLink={handleSaveDayLink}
+        />
       )}
 
       {modal && (
