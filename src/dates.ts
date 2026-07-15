@@ -79,6 +79,15 @@ export function daysBetween(aISO: string, bISO: string): number {
   return Math.round((b.getTime() - a.getTime()) / 86400000)
 }
 
+// Every ISO day from a to b inclusive, in drag order (works both directions).
+export function daysInRange(aISO: string, bISO: string): string[] {
+  const delta = daysBetween(aISO, bISO)
+  const step = delta >= 0 ? 1 : -1
+  const out: string[] = []
+  for (let i = 0; i <= Math.abs(delta); i++) out.push(addDaysISO(aISO, i * step))
+  return out
+}
+
 export interface MonthDay {
   iso: string
   dayNum: number

@@ -11,7 +11,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core'
-import { buildMonthGrid, coversDay, WEEKDAY_LABELS } from './dates'
+import { buildMonthGrid, coversDay, daysInRange, WEEKDAY_LABELS } from './dates'
 import {
   LINEUP_COLORS,
   STATUS_META,
@@ -36,6 +36,7 @@ interface Props {
   onCopyPrev: (day: string) => void
   onCopyDay: (fromDay: string, toDay: string) => void
   onMoveDay: (fromDay: string, toDay: string) => void
+  onFillDays: (fromDay: string, toDays: string[]) => void
   onSaveLineup: (day: string, title: string, color: string) => void
   onDeleteLineup: (day: string) => void
   onSaveDayLink: (day: string, url: string) => void
@@ -66,6 +67,7 @@ export default function Calendar({
   onCopyPrev,
   onCopyDay,
   onMoveDay,
+  onFillDays,
   onSaveLineup,
   onDeleteLineup,
   onSaveDayLink,
@@ -76,6 +78,38 @@ export default function Calendar({
   const [pendingDrop, setPendingDrop] = useState<{ from: string; to: string } | null>(
     null,
   )
+  // Excel-style fill: drag the corner handle across days to copy the lineup.
+  const [fill, setFill] = useState<{ from: string; to: string } | null>(null)
+
+  const startFill = (fromIso: string) => (e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setFill({ from: fromIso, to: fromIso })
+
+    const findIso = (x: number, y: number): string | null => {
+      const el = document.elementFromPoint(x, y)
+      const cell = el?.closest<HTMLElement>('[data-iso]')
+      return cell?.dataset.iso ?? null
+    }
+    const onMove = (ev: PointerEvent) => {
+      const iso = findIso(ev.clientX, ev.clientY)
+      if (iso) setFill((f) => (f ? { ...f, to: iso } : f))
+    }
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      const iso = findIso(ev.clientX, ev.clientY) ?? fromIso
+      const range = daysInRange(fromIso, iso).filter((d) => d !== fromIso)
+      if (range.length > 0) onFillDays(fromIso, range)
+      setFill(null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  const fillSet = fill
+    ? new Set(daysInRange(fill.from, fill.to))
+    : null
 
   const allTrayNames = Array.from(new Set(dayTrays.map((t) => t.name))).sort()
   const linkMap = new Map(dayLinks.map((d) => [d.day, d.images_url]))
@@ -164,6 +198,9 @@ export default function Calendar({
                 imagesUrl={imagesUrl}
                 hasTrays={trays.length > 0}
                 isMovingSource={movingDay === cell.iso}
+                isFillTarget={fillSet ? fillSet.has(cell.iso) : false}
+                isFillSource={fill?.from === cell.iso}
+                onStartFill={startFill(cell.iso)}
                 onEditLink={() => setLinkEditDay(cell.iso)}
               >
                 {dayExps.length > 0 && (
@@ -270,6 +307,9 @@ function DayCell({
   imagesUrl,
   hasTrays,
   isMovingSource,
+  isFillTarget,
+  isFillSource,
+  onStartFill,
   onEditLink,
   children,
 }: {
@@ -280,6 +320,9 @@ function DayCell({
   imagesUrl: string
   hasTrays: boolean
   isMovingSource: boolean
+  isFillTarget: boolean
+  isFillSource: boolean
+  onStartFill: (e: React.PointerEvent) => void
   onEditLink: () => void
   children: React.ReactNode
 }) {
@@ -288,12 +331,14 @@ function DayCell({
   return (
     <div
       ref={setNodeRef}
+      data-iso={iso}
       className={
         'day-cell' +
         (inCurrentMonth ? '' : ' day-cell--muted') +
         (isToday ? ' day-cell--today' : '') +
         (isOver ? ' day-cell--droptarget' : '') +
-        (isMovingSource ? ' day-cell--movingsource' : '')
+        (isMovingSource ? ' day-cell--movingsource' : '') +
+        (isFillTarget ? ' day-cell--filltarget' : '')
       }
     >
       <div className="day-header">
@@ -317,6 +362,14 @@ function DayCell({
         </div>
       </div>
       {children}
+      {hasTrays && (
+        <button
+          className={'day-fillhandle' + (isFillSource ? ' day-fillhandle--active' : '')}
+          title="Drag across days to fill this lineup (like Excel)"
+          aria-label="Fill this lineup across days"
+          onPointerDown={onStartFill}
+        />
+      )}
     </div>
   )
 }

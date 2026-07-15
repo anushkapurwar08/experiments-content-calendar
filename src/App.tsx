@@ -17,6 +17,7 @@ import {
   deleteDayTray,
   fetchDayLineups,
   fetchDayTrays,
+  fillDayLineup,
   moveDayLineup,
   reorderDayTrays,
   subscribeToDayTrays,
@@ -171,6 +172,30 @@ export default function App() {
     await reload()
   }
 
+  const handleFillDays = async (fromDay: string, toDays: string[]) => {
+    const targets = toDays.filter((d) => d !== fromDay)
+    if (targets.length === 0) return
+    // Optimistic: mirror the source's trays onto every target locally.
+    const targetSet = new Set(targets)
+    const sourceTrays = dayTrays.filter((t) => t.day === fromDay)
+    const sourceLineup = dayLineups.find((l) => l.day === fromDay)
+    setDayTrays((prev) => {
+      const kept = prev.filter((t) => !targetSet.has(t.day))
+      const copies = targets.flatMap((day) =>
+        sourceTrays.map((t) => ({ ...t, id: `${t.id}-fill-${day}`, day })),
+      )
+      return [...kept, ...copies]
+    })
+    setDayLineups((prev) => {
+      const kept = prev.filter((l) => !targetSet.has(l.day))
+      if (!sourceLineup) return kept
+      const copies = targets.map((day) => ({ ...sourceLineup, day }))
+      return [...kept, ...copies]
+    })
+    await fillDayLineup(fromDay, targets)
+    await reload()
+  }
+
   const handleMoveDay = async (fromDay: string, toDay: string) => {
     // Optimistic: relocate source trays to the target, clearing the target's own.
     setDayTrays((prev) =>
@@ -292,6 +317,7 @@ export default function App() {
           onCopyPrev={handleCopyPrev}
           onCopyDay={handleCopyDay}
           onMoveDay={handleMoveDay}
+          onFillDays={handleFillDays}
           onSaveLineup={handleSaveLineup}
           onDeleteLineup={handleDeleteLineup}
           onSaveDayLink={handleSaveDayLink}

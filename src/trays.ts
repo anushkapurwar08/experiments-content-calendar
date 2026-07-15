@@ -88,6 +88,51 @@ export async function copyDayTrays(fromDay: string, toDay: string): Promise<void
   return copyDayLineup(fromDay, toDay)
 }
 
+// Excel-style fill: copy one day's lineup (trays + title/color) across a run of
+// target days in one shot. Each target is replaced with an exact copy of the
+// source; the source itself is skipped so it's never wiped.
+export async function fillDayLineup(
+  fromDay: string,
+  toDays: string[],
+): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured')
+  const client = supabase
+  const targets = toDays.filter((d) => d !== fromDay)
+  if (targets.length === 0) return
+
+  const { data, error } = await client
+    .from(TABLE)
+    .select('name, position')
+    .eq('day', fromDay)
+    .order('position', { ascending: true })
+  if (error) throw error
+  const src = data as { name: string; position: number }[]
+  const { title, color } = await readLineup(fromDay)
+
+  // Clear all targets, then insert copies for every target in a single batch.
+  await client.from(TABLE).delete().in('day', targets)
+  if (src.length > 0) {
+    const rows = targets.flatMap((day) =>
+      src.map((r) => ({ day, name: r.name, position: r.position })),
+    )
+    const { error: insErr } = await client.from(TABLE).insert(rows)
+    if (insErr) throw insErr
+  }
+
+  if (title || color) {
+    const lineupRows = targets.map((day) => ({
+      day,
+      title,
+      color,
+      updated_at: new Date().toISOString(),
+    }))
+    const { error: lErr } = await client.from(LINEUP_TABLE).upsert(lineupRows)
+    if (lErr) throw lErr
+  } else {
+    await client.from(LINEUP_TABLE).delete().in('day', targets)
+  }
+}
+
 // ---- Lineup title + color ------------------------------------------------
 
 export async function fetchDayLineups(): Promise<DayLineup[]> {

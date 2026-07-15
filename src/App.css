@@ -570,6 +570,38 @@ code {
   opacity: 0.5;
 }
 
+/* Excel-style fill handle: a small grab square in the cell's bottom-right */
+.day-fillhandle {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1.5px solid var(--surface);
+  border-radius: 3px;
+  background: var(--accent);
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity 0.12s, transform 0.1s;
+  touch-action: none;
+  z-index: 4;
+}
+.day-cell:hover .day-fillhandle {
+  opacity: 1;
+}
+.day-fillhandle:hover,
+.day-fillhandle--active {
+  opacity: 1;
+  transform: scale(1.25);
+}
+
+/* Days covered by an in-progress fill drag */
+.day-cell--filltarget {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: rgba(79, 70, 229, 0.08);
+}
+
 /* Floating badge shown under the cursor while dragging a day's lineup */
 .daymove-ghost {
   background: var(--accent);
