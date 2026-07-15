@@ -99,6 +99,10 @@ export async function fetchDayLineups(): Promise<DayLineup[]> {
 
 // Set the title and/or color for a day's lineup. If both are empty the row is
 // removed so we don't accumulate blanks.
+//
+// Color is a property of the lineup *name*: picking a color for "exp 1" applies
+// it to every day whose lineup is named "exp 1", so a named lineup reads the
+// same everywhere it appears.
 export async function upsertDayLineup(
   day: string,
   title: string,
@@ -112,13 +116,40 @@ export async function upsertDayLineup(
     if (error) throw error
     return
   }
+
+  // If naming a lineup without picking a color, inherit the color already used
+  // by other days with the same name so the name reads consistently.
+  let effectiveColor = color
+  if (trimmed && !color) {
+    const { data: sibling } = await client
+      .from(LINEUP_TABLE)
+      .select('color')
+      .eq('title', trimmed)
+      .neq('day', day)
+      .neq('color', '')
+      .limit(1)
+      .maybeSingle()
+    effectiveColor = (sibling as { color: string } | null)?.color ?? ''
+  }
+
   const { error } = await client.from(LINEUP_TABLE).upsert({
     day,
     title: trimmed,
-    color,
+    color: effectiveColor,
     updated_at: new Date().toISOString(),
   })
   if (error) throw error
+
+  // Propagate a chosen color to every other day sharing this lineup name, so
+  // color belongs to the name and reads the same everywhere it appears.
+  if (trimmed && color) {
+    const { error: propErr } = await client
+      .from(LINEUP_TABLE)
+      .update({ color, updated_at: new Date().toISOString() })
+      .eq('title', trimmed)
+      .neq('day', day)
+    if (propErr) throw propErr
+  }
 }
 
 // Remove a whole day's lineup: all its trays and its title/color row.
