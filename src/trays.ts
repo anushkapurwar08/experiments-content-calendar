@@ -41,6 +41,28 @@ export async function reorderDayTrays(orderedIds: string[]): Promise<void> {
   )
 }
 
+// Move a whole day's lineup onto another day. If the target day already has a
+// lineup, the two days swap (reversible, nothing is lost). Rows keep their own
+// position values, so each day's internal order survives the move.
+export async function moveDayTrays(fromDay: string, toDay: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (fromDay === toDay) return
+  const client = supabase
+  const { data, error } = await client
+    .from(TABLE)
+    .select('id, day')
+    .in('day', [fromDay, toDay])
+  if (error) throw error
+  const rows = data as { id: string; day: string }[]
+  const fromIds = rows.filter((r) => r.day === fromDay).map((r) => r.id)
+  const toIds = rows.filter((r) => r.day === toDay).map((r) => r.id)
+  if (fromIds.length === 0) return
+  await Promise.all([
+    ...fromIds.map((id) => client.from(TABLE).update({ day: toDay }).eq('id', id)),
+    ...toIds.map((id) => client.from(TABLE).update({ day: fromDay }).eq('id', id)),
+  ])
+}
+
 // Copy an entire day's lineup onto another day (for "same as yesterday").
 export async function copyDayTrays(fromDay: string, toDay: string): Promise<void> {
   if (!supabase) throw new Error('Supabase not configured')

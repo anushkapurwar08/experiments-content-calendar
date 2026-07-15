@@ -14,6 +14,7 @@ import {
   createDayTray,
   deleteDayTray,
   fetchDayTrays,
+  moveDayTrays,
   reorderDayTrays,
   subscribeToDayTrays,
 } from './trays'
@@ -157,6 +158,21 @@ export default function App() {
     await reload()
   }
 
+  const handleMoveDay = async (fromDay: string, toDay: string) => {
+    // Optimistic: swap the two days' trays locally (empty target = clean move).
+    setDayTrays((prev) =>
+      prev.map((t) =>
+        t.day === fromDay
+          ? { ...t, day: toDay }
+          : t.day === toDay
+            ? { ...t, day: fromDay }
+            : t,
+      ),
+    )
+    await moveDayTrays(fromDay, toDay)
+    await reload()
+  }
+
   const handleSaveDayLink = async (day: string, url: string) => {
     await upsertDayLink(day, url)
     await reload()
@@ -251,6 +267,7 @@ export default function App() {
           onAddTray={handleAddTray}
           onDeleteTray={handleDeleteTray}
           onCopyPrev={handleCopyPrev}
+          onMoveDay={handleMoveDay}
           onSaveDayLink={handleSaveDayLink}
         />
       )}

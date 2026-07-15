@@ -1,4 +1,16 @@
 import { useState } from 'react'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  closestCenter,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
 import { buildMonthGrid, coversDay, WEEKDAY_LABELS } from './dates'
 import { STATUS_META, type DayLink, type DayTray, type Experiment } from './types'
 import TrayStack from './TrayStack'
@@ -14,8 +26,12 @@ interface Props {
   onAddTray: (day: string, name: string) => void
   onDeleteTray: (id: string) => void
   onCopyPrev: (day: string) => void
+  onMoveDay: (fromDay: string, toDay: string) => void
   onSaveDayLink: (day: string, url: string) => void
 }
+
+const MOVE_PREFIX = 'daymove-'
+const CELL_PREFIX = 'daycell-'
 
 export default function Calendar({
   year,
@@ -28,13 +44,44 @@ export default function Calendar({
   onAddTray,
   onDeleteTray,
   onCopyPrev,
+  onMoveDay,
   onSaveDayLink,
 }: Props) {
   const cells = buildMonthGrid(year, month)
   const [linkEditDay, setLinkEditDay] = useState<string | null>(null)
+  const [movingDay, setMovingDay] = useState<string | null>(null)
 
   const allTrayNames = Array.from(new Set(dayTrays.map((t) => t.name))).sort()
   const linkMap = new Map(dayLinks.map((d) => [d.day, d.images_url]))
+  const traysByDay = new Map<string, DayTray[]>()
+  for (const t of dayTrays) {
+    const list = traysByDay.get(t.day) ?? []
+    list.push(t)
+    traysByDay.set(t.day, list)
+  }
+
+  // Calendar-level drag: move a whole day's lineup onto another day. This is a
+  // separate DndContext from the per-day tray reorder inside TrayStack, so the
+  // two never fight over the same pointer — the grip drives this one.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  )
+
+  const handleDayDragStart = (event: DragStartEvent) => {
+    const id = String(event.active.id)
+    if (id.startsWith(MOVE_PREFIX)) setMovingDay(id.slice(MOVE_PREFIX.length))
+  }
+
+  const handleDayDragEnd = (event: DragEndEvent) => {
+    setMovingDay(null)
+    const { active, over } = event
+    if (!over) return
+    const from = String(active.id).replace(MOVE_PREFIX, '')
+    const to = String(over.id).replace(CELL_PREFIX, '')
+    if (from && to && from !== to) onMoveDay(from, to)
+  }
+
+  const movingCount = movingDay ? (traysByDay.get(movingDay)?.length ?? 0) : 0
 
   return (
     <div className="calendar">
@@ -45,119 +92,191 @@ export default function Calendar({
           </div>
         ))}
       </div>
-      <div className="month-grid">
-        {cells.map((cell) => {
-          const dayExps = experiments.filter((e) =>
-            coversDay(cell.iso, e.start_date, e.end_date),
-          )
-          const trays = dayTrays
-            .filter((t) => t.day === cell.iso)
-            .sort((a, b) => a.position - b.position)
-          const imagesUrl = linkMap.get(cell.iso) ?? ''
-          const prevIso = cell.date
-            ? new Date(
-                cell.date.getFullYear(),
-                cell.date.getMonth(),
-                cell.date.getDate() - 1,
-              )
-            : null
-          const prevHasTrays = prevIso
-            ? dayTrays.some(
-                (t) =>
-                  t.day ===
-                  `${prevIso.getFullYear()}-${String(prevIso.getMonth() + 1).padStart(2, '0')}-${String(prevIso.getDate()).padStart(2, '0')}`,
-              )
-            : false
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDayDragStart}
+        onDragEnd={handleDayDragEnd}
+        onDragCancel={() => setMovingDay(null)}
+      >
+        <div className="month-grid">
+          {cells.map((cell) => {
+            const dayExps = experiments.filter((e) =>
+              coversDay(cell.iso, e.start_date, e.end_date),
+            )
+            const trays = (traysByDay.get(cell.iso) ?? [])
+              .slice()
+              .sort((a, b) => a.position - b.position)
+            const imagesUrl = linkMap.get(cell.iso) ?? ''
+            const prevIso = cell.date
+              ? new Date(
+                  cell.date.getFullYear(),
+                  cell.date.getMonth(),
+                  cell.date.getDate() - 1,
+                )
+              : null
+            const prevHasTrays = prevIso
+              ? dayTrays.some(
+                  (t) =>
+                    t.day ===
+                    `${prevIso.getFullYear()}-${String(prevIso.getMonth() + 1).padStart(2, '0')}-${String(prevIso.getDate()).padStart(2, '0')}`,
+                )
+              : false
 
-          return (
-            <div
-              key={cell.iso}
-              className={
-                'day-cell' +
-                (cell.inCurrentMonth ? '' : ' day-cell--muted') +
-                (cell.isToday ? ' day-cell--today' : '')
-              }
-            >
-              <div className="day-header">
-                <span className="day-number">{cell.date.getDate()}</span>
-                <div className="day-header-right">
-                  {cell.isToday && <span className="today-dot">today</span>}
-                  <button
-                    className={
-                      'day-imgchip' + (imagesUrl ? ' day-imgchip--filled' : '')
-                    }
-                    title={
-                      imagesUrl
-                        ? "Open / edit this day's images"
-                        : "Add this day's images link"
-                    }
-                    onClick={() => setLinkEditDay(cell.iso)}
-                  >
-                    ▦
-                  </button>
-                </div>
-              </div>
+            return (
+              <DayCell
+                key={cell.iso}
+                iso={cell.iso}
+                dayNumber={cell.date.getDate()}
+                inCurrentMonth={cell.inCurrentMonth}
+                isToday={cell.isToday}
+                imagesUrl={imagesUrl}
+                hasTrays={trays.length > 0}
+                isMovingSource={movingDay === cell.iso}
+                onEditLink={() => setLinkEditDay(cell.iso)}
+              >
+                {dayExps.length > 0 && (
+                  <div className="day-pills">
+                    {dayExps.map((exp) => {
+                      const meta = STATUS_META[exp.status]
+                      const isStart = exp.start_date === cell.iso
+                      const isEnd = exp.end_date === cell.iso
+                      const isRange = exp.start_date !== exp.end_date
+                      return (
+                        <button
+                          key={exp.id}
+                          className={
+                            'pill' +
+                            (isRange ? ' pill--range' : '') +
+                            (isRange && !isStart ? ' pill--continued' : '') +
+                            (isRange && !isEnd ? ' pill--extends' : '')
+                          }
+                          style={{ background: meta.color, color: meta.text }}
+                          title={`${exp.title} — ${meta.label}`}
+                          onClick={() => onOpenExperiment(exp)}
+                        >
+                          {isStart || !isRange ? (
+                            <span className="pill-label">{exp.title}</span>
+                          ) : (
+                            <span className="pill-label pill-label--ghost">
+                              {exp.title}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
 
-              {dayExps.length > 0 && (
-                <div className="day-pills">
-                  {dayExps.map((exp) => {
-                    const meta = STATUS_META[exp.status]
-                    const isStart = exp.start_date === cell.iso
-                    const isEnd = exp.end_date === cell.iso
-                    const isRange = exp.start_date !== exp.end_date
-                    return (
-                      <button
-                        key={exp.id}
-                        className={
-                          'pill' +
-                          (isRange ? ' pill--range' : '') +
-                          (isRange && !isStart ? ' pill--continued' : '') +
-                          (isRange && !isEnd ? ' pill--extends' : '')
-                        }
-                        style={{ background: meta.color, color: meta.text }}
-                        title={`${exp.title} — ${meta.label}`}
-                        onClick={() => onOpenExperiment(exp)}
-                      >
-                        {isStart || !isRange ? (
-                          <span className="pill-label">{exp.title}</span>
-                        ) : (
-                          <span className="pill-label pill-label--ghost">
-                            {exp.title}
-                          </span>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-
-              <TrayStack
-                day={cell.iso}
-                trays={trays}
-                allTrayNames={allTrayNames}
-                canCopyPrev={prevHasTrays}
-                onReorder={onReorderTrays}
-                onAddTray={onAddTray}
-                onDeleteTray={onDeleteTray}
-                onCopyPrev={onCopyPrev}
-              />
-
-              {linkEditDay === cell.iso && (
-                <DayLinkPopover
+                <TrayStack
                   day={cell.iso}
-                  url={imagesUrl}
-                  onSave={(url) => {
-                    onSaveDayLink(cell.iso, url)
-                    setLinkEditDay(null)
-                  }}
-                  onClose={() => setLinkEditDay(null)}
+                  trays={trays}
+                  allTrayNames={allTrayNames}
+                  canCopyPrev={prevHasTrays}
+                  onReorder={onReorderTrays}
+                  onAddTray={onAddTray}
+                  onDeleteTray={onDeleteTray}
+                  onCopyPrev={onCopyPrev}
                 />
-              )}
+
+                {linkEditDay === cell.iso && (
+                  <DayLinkPopover
+                    day={cell.iso}
+                    url={imagesUrl}
+                    onSave={(url) => {
+                      onSaveDayLink(cell.iso, url)
+                      setLinkEditDay(null)
+                    }}
+                    onClose={() => setLinkEditDay(null)}
+                  />
+                )}
+              </DayCell>
+            )
+          })}
+        </div>
+        <DragOverlay>
+          {movingDay ? (
+            <div className="daymove-ghost">
+              Move {movingCount} {movingCount === 1 ? 'tray' : 'trays'}
             </div>
-          )
-        })}
-      </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </div>
+  )
+}
+
+function DayCell({
+  iso,
+  dayNumber,
+  inCurrentMonth,
+  isToday,
+  imagesUrl,
+  hasTrays,
+  isMovingSource,
+  onEditLink,
+  children,
+}: {
+  iso: string
+  dayNumber: number
+  inCurrentMonth: boolean
+  isToday: boolean
+  imagesUrl: string
+  hasTrays: boolean
+  isMovingSource: boolean
+  onEditLink: () => void
+  children: React.ReactNode
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `${CELL_PREFIX}${iso}` })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={
+        'day-cell' +
+        (inCurrentMonth ? '' : ' day-cell--muted') +
+        (isToday ? ' day-cell--today' : '') +
+        (isOver ? ' day-cell--droptarget' : '') +
+        (isMovingSource ? ' day-cell--movingsource' : '')
+      }
+    >
+      <div className="day-header">
+        <span className="day-number">{dayNumber}</span>
+        <div className="day-header-right">
+          {isToday && <span className="today-dot">today</span>}
+          {hasTrays && <DayDragGrip iso={iso} />}
+          <button
+            className={'day-imgchip' + (imagesUrl ? ' day-imgchip--filled' : '')}
+            title={
+              imagesUrl
+                ? "Open / edit this day's images"
+                : "Add this day's images link"
+            }
+            onClick={onEditLink}
+          >
+            ▦
+          </button>
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function DayDragGrip({ iso }: { iso: string }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `${MOVE_PREFIX}${iso}`,
+  })
+  return (
+    <button
+      ref={setNodeRef}
+      className={'day-movegrip' + (isDragging ? ' day-movegrip--active' : '')}
+      title="Drag this whole day's lineup onto another day"
+      {...attributes}
+      {...listeners}
+    >
+      ⠿
+    </button>
   )
 }
 
